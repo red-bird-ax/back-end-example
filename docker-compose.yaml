@@ -1,0 +1,91 @@
+version: "3.8"
+
+services:
+
+  users-service:
+    build:
+      context: ./
+      dockerfile: ./users/Dockerfile
+    container_name: users-service
+    networks:
+      - net
+    ports:
+      - "2020:2020"
+    depends_on:
+      users-db:
+        condition: service_healthy
+    environment:
+      PORT: 2020
+      DB_NAME: "users"
+      DB_PORT: "5432"
+      DB_HOST: "users-db"
+      DB_USER: "redbird"
+      DB_PASSWORD: "dbpwd"
+      ACCESS_TOKEN_SECRET: "qpwoeiuyt0129348325"
+      REQUEST_TIMEOUT: 5s
+
+  users-db:
+    image: postgres:15-alpine
+    container_name: users-db
+    networks:
+      - net
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready" ]
+      interval: 4s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./db-content:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: users
+      POSTGRES_USER: redbird
+      POSTGRES_PASSWORD: dbpwd
+
+  users-migration:
+    image: migrate/migrate
+    container_name: users-migration
+    networks:
+      - net
+    depends_on:
+      users-db:
+        condition: service_healthy
+    volumes:
+      - ./users/migrations:/migrations
+    command: ["-path", "/migrations", "-database",  "postgres://redbird:dbpwd@users-db:5432/users?sslmode=disable", "up"]
+
+  auth-service:
+    build:
+      context: ./
+      dockerfile: ./auth/Dockerfile
+    container_name: auth-service
+    networks:
+      - net
+    ports:
+      - "1010:1010"
+    environment:
+      PORT: 1010
+      USERS_ENDPOINT: "users-service:2020"
+      ACCESS_TOKEN_SECRET: "qpwoeiuyt0129348325"
+      ACCESS_TOKEN_EXPIRE: 1m
+      REFRESH_TOKEN_SECRET: "hgdjfkjkdlas6547891"
+      REFRESH_TOKEN_EXPIRE: 8m
+      CACHE_PASSWORD: "cachepassword1234"
+      CACHE_HOST: "auth-cache"
+      CACHE_PORT: 7000
+      REQUEST_TIMEOUT: 5s
+
+  auth-cache:
+    image: bitnami/redis:latest
+    container_name: auth-cache
+    networks:
+        - net
+    ports:
+      - "7000:7000"
+    environment:
+      REDIS_PORT_NUMBER: 7000
+      REDIS_PASSWORD: "cachepassword1234"
+
+networks:
+  net:
